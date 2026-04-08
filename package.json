@@ -1,0 +1,28 @@
+{
+  "name": "garmin-discord-ai-selfbot",
+  "version": "1.0.0",
+  "description": "Selfbot Discord IA Garmin utilisant OpenAI Responses API",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [
+    "discord",
+    "selfbot",
+    "openai",
+    "garmin",
+    "ai"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "eris": "^0.18.0",
+    "openai": "^6.2.0"
+  }
+}
