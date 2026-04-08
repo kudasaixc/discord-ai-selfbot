@@ -17,11 +17,15 @@ function assertEnv() {
 async function bootstrap() {
   assertEnv();
 
+  const intents =
+    Eris.Constants.Intents.guildMessages |
+    Eris.Constants.Intents.directMessages |
+    Eris.Constants.Intents.messageContent;
+
   const client = new Eris(process.env.DISCORD_BOT_TOKEN, {
-    restMode: true,
     autoreconnect: true,
     compress: true,
-    intents: []
+    intents
   });
 
   const memory = new ConversationMemory(config.memoryLimit);
@@ -29,6 +33,7 @@ async function bootstrap() {
   client.on('ready', () => {
     logger.info(`Connecté en tant que ${client.user.username}#${client.user.discriminator}`);
     logger.info(`Déclencheur nom: "${config.botName}"`);
+    logger.info(`Intents actifs: guildMessages, directMessages, messageContent`);
     logger.warn("Attention: l'usage de selfbot peut violer les règles Discord.");
   });
 
