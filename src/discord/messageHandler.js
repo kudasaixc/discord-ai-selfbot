@@ -300,44 +300,108 @@ async function joinInvite(client, code) {
 
 async function executeAiAction(client, msg, action) {
   if (!msg.channel || msg.guildID != null) {
-    return '⚠️ Actions IA ignorées hors DM.';
+    return {
+      ok: false,
+      type: action.type,
+      message: 'actions IA ignorées hors DM',
+      userTextFr: "Je peux exécuter ces actions uniquement en DM.",
+      userTextEn: 'I can only run these actions in DMs.'
+    };
   }
 
   if (action.type === 'acceptme') {
     await addFriendRelationship(client, msg.author.id);
-    return `✅ Ami accepté pour ${msg.author.username || msg.author.id}.`;
+    return {
+      ok: true,
+      type: action.type,
+      message: `ami accepté pour ${msg.author.username || msg.author.id}`,
+      userTextFr: `C'est fait, je t'ai ajouté en ami (${msg.author.username || msg.author.id}).`,
+      userTextEn: `Done, I added you as a friend (${msg.author.username || msg.author.id}).`
+    };
   }
 
   if (action.type === 'addfriend' || action.type === 'friend_request') {
     const targetId = resolveUserIdFromAction(action, msg);
     if (!targetId) {
-      return "❌ Il me faut un userId Discord (17 à 20 chiffres) pour envoyer la demande d'ami.";
+      return {
+        ok: false,
+        type: action.type,
+        message: 'userId Discord manquant',
+        userTextFr: "Il me faut un userId Discord (17 à 20 chiffres) pour envoyer la demande d'ami.",
+        userTextEn: 'I need a Discord user ID (17 to 20 digits) to send the friend request.'
+      };
     }
     if (isSelfUserId(client, targetId)) {
-      return "❌ Tu m'as donné mon propre userId: je ne peux pas m'ajouter moi-même en ami. Donne-moi l'userId de la personne à ajouter.";
+      return {
+        ok: false,
+        type: action.type,
+        message: 'userId cible identique au selfbot',
+        userTextFr:
+          "Tu m'as donné mon propre userId, je ne peux pas m'ajouter moi-même en ami. Donne-moi l'userId de la personne à ajouter.",
+        userTextEn:
+          "You gave me my own user ID, so I can't add myself as a friend. Send the target person's user ID."
+      };
     }
     await addFriendRelationship(client, targetId);
-    return `✅ Demande d'ami envoyée à ${targetId}.`;
+    return {
+      ok: true,
+      type: action.type,
+      message: `demande d'ami envoyée à ${targetId}`,
+      userTextFr: `C'est fait, j'ai envoyé la demande d'ami à ${targetId}.`,
+      userTextEn: `Done, I sent the friend request to ${targetId}.`
+    };
   }
 
   if (action.type === 'join') {
     const code = extractInviteCode(String(action.invite || ''));
-    if (!code) return "❌ Action `join` ignorée: code d'invitation manquant.";
+    if (!code) {
+      return {
+        ok: false,
+        type: action.type,
+        message: "code d'invitation manquant",
+        userTextFr: "J'ai besoin d'un code (ou lien) d'invitation pour rejoindre le serveur.",
+        userTextEn: 'I need an invite link or code to join the server.'
+      };
+    }
     await joinInvite(client, code);
-    return `✅ Serveur rejoint via ${code}.`;
+    return {
+      ok: true,
+      type: action.type,
+      message: `serveur rejoint via ${code}`,
+      userTextFr: `C'est bon, j'ai rejoint le serveur via l'invitation ${code}.`,
+      userTextEn: `Done, I joined the server using invite ${code}.`
+    };
   }
 
   if (action.type === 'say') {
     const channelId = String(action.channelId || '').trim();
     const text = String(action.message || '').trim();
     if (!channelId || !text) {
-      return "❌ Action `say` ignorée: channelId/message manquant.";
+      return {
+        ok: false,
+        type: action.type,
+        message: 'channelId ou message manquant',
+        userTextFr: "Pour envoyer un message, il me faut à la fois le channelId et le texte.",
+        userTextEn: 'To send a message, I need both the channel ID and the message text.'
+      };
     }
     await client.createMessage(channelId, text);
-    return `✅ Message envoyé dans ${channelId}.`;
+    return {
+      ok: true,
+      type: action.type,
+      message: `message envoyé dans ${channelId}`,
+      userTextFr: `C'est fait, j'ai bien envoyé le message dans le salon ${channelId}.`,
+      userTextEn: `Done, I sent the message in channel ${channelId}.`
+    };
   }
 
-  return `⚠️ Action IA inconnue: ${action.type}`;
+  return {
+    ok: false,
+    type: action.type,
+    message: `action IA inconnue: ${action.type}`,
+    userTextFr: `Je ne reconnais pas l'action \`${action.type}\`.`,
+    userTextEn: `I don't recognize the action \`${action.type}\`.`
+  };
 }
 
 async function executeAiActions(client, msg, rawActions) {
@@ -351,11 +415,30 @@ async function executeAiActions(client, msg, rawActions) {
       summaries.push(result);
     } catch (error) {
       logger.error('Échec action IA', { error: error.message, action });
-      summaries.push(`❌ Échec action ${action.type}: ${error.message}`);
+      summaries.push({
+        ok: false,
+        type: action.type,
+        message: `échec action ${action.type}: ${error.message}`,
+        userTextFr: `Je n'ai pas réussi à exécuter l'action \`${action.type}\` (${error.message}).`,
+        userTextEn: `I couldn't run the \`${action.type}\` action (${error.message}).`
+      });
     }
   }
 
   return summaries;
+}
+
+function buildActionFeedback(actionResults, lang) {
+  if (!Array.isArray(actionResults) || actionResults.length === 0) return '';
+
+  const useEnglish = lang === 'en';
+  const lines = actionResults
+    .map((result) => (useEnglish ? result.userTextEn : result.userTextFr))
+    .map((line) => String(line || '').trim())
+    .filter(Boolean);
+
+  if (!lines.length) return '';
+  return lines.join('\n');
 }
 
 function registerMessageHandler(client, memory) {
@@ -417,8 +500,12 @@ function registerMessageHandler(client, memory) {
           const actionResults = await executeAiActions(client, msg, parsed.actions);
           executedActionCount = actionResults.length;
           if (actionResults.length) {
-            await sendReply(client, msg.channel.id, actionResults.join('\n'));
-            memory.addAssistantMessage(msg.channel.id, actionResults.join('\n'));
+            const actionFeedback = buildActionFeedback(actionResults, lang);
+            if (actionFeedback) {
+              const safeFeedback = truncateText(actionFeedback, config.maxResponseChars);
+              await sendReply(client, msg.channel.id, safeFeedback);
+              memory.addAssistantMessage(msg.channel.id, safeFeedback);
+            }
           }
         }
 
