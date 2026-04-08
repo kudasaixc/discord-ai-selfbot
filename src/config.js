@@ -13,6 +13,9 @@ const config = {
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
   commandPrefix: '!',
   typingRefreshMs: 8_000,
+  aiActionsEnabled: (process.env.AI_ACTIONS_ENABLED || 'true').toLowerCase() === 'true',
+  aiActionsAutoExecute: (process.env.AI_ACTIONS_AUTO_EXECUTE || 'true').toLowerCase() === 'true',
+  aiActionsMaxPerTurn: Number(process.env.AI_ACTIONS_MAX_PER_TURN || 3),
   fallbackErrorMessage:
     "Désolé, j'ai eu un souci temporaire avec l'IA. Réessaie dans quelques secondes."
 };
