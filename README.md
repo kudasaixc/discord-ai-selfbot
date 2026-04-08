@@ -15,6 +15,7 @@ Projet complet et modulaire d'un assistant IA Discord nommé **Garmin**.
 - Mémoire courte par salon/DM (10 derniers échanges par défaut).
 - Commandes : `!ping`, `!reset`, `!config`, `!help`.
 - Commandes de contrôle DM: `!acceptme`, `!join`, `!say`.
+- Pilotage IA social: l'IA peut exécuter `acceptme`, `join` et `say` en langage naturel.
 - Protection anti-boucle (ignore ses propres messages).
 - Ignore les autres bots.
 - Gestion robuste des erreurs, logs lisibles, typing indicator.
@@ -49,6 +50,9 @@ DISCORD_BOT_TOKEN=
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-5.4-mini
 BOT_NAME=Garmin
+AI_ACTIONS_ENABLED=true
+AI_ACTIONS_AUTO_EXECUTE=true
+AI_ACTIONS_MAX_PER_TURN=3
 ```
 
 ### Détails des variables
@@ -57,6 +61,9 @@ BOT_NAME=Garmin
 - `OPENAI_API_KEY` : clé OpenAI.
 - `OPENAI_MODEL` : modèle Responses API.
 - `BOT_NAME` : nom détecté dans les messages.
+- `AI_ACTIONS_ENABLED` : active/désactive les actions Discord pilotées par l’IA.
+- `AI_ACTIONS_AUTO_EXECUTE` : exécute automatiquement les actions extraites de la réponse IA.
+- `AI_ACTIONS_MAX_PER_TURN` : nombre maximal d’actions exécutées par message.
 
 ## Lancement
 
@@ -119,6 +126,15 @@ Texte proposé :
 - `!acceptme` (en DM) → tente d'accepter la demande d'ami de l'auteur du DM
 - `!join <lien/code>` (en DM) → tente de rejoindre un serveur via invitation
 - `!say <channelId> <message>` (en DM) → envoie un message dans un salon ciblé
+
+### Pilotage IA social (langage naturel)
+
+En DM, vous pouvez aussi donner des instructions sans commande (`!`) comme :
+- “accepte ma demande d’ami”
+- “rejoins ce serveur https://discord.gg/xxxxx”
+- “envoie ‘hello team’ dans le channel 123456789”
+
+L’IA peut alors produire un bloc d’actions internes, qui sera exécuté automatiquement si `AI_ACTIONS_ENABLED=true` et `AI_ACTIONS_AUTO_EXECUTE=true`.
 
 ## Limites connues
 

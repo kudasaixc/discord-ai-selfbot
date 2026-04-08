@@ -3,6 +3,7 @@ const { config } = require('../config');
 const { splitDiscordMessage, truncateText } = require('../utils/text');
 const logger = require('../utils/logger');
 const CONTROL_COMMANDS = ['owner', 'acceptme', 'join', 'say', 'help-control'];
+const ACTION_BLOCK_REGEX = /\[ACTIONS\]([\s\S]*?)\[\/ACTIONS\]/i;
 
 function createTypingLoop(client, channelId, intervalMs) {
   let timer = null;
@@ -47,7 +48,10 @@ function buildConfigSummary() {
     `Langue défaut: ${config.defaultLanguage}`,
     `Mémoire: ${config.memoryLimit} échanges`,
     `Max réponse: ${config.maxResponseChars} caractères`,
-    `Température: ${config.temperature}`
+    `Température: ${config.temperature}`,
+    `Actions IA activées: ${config.aiActionsEnabled ? 'oui' : 'non'}`,
+    `Actions IA auto-exec: ${config.aiActionsAutoExecute ? 'oui' : 'non'}`,
+    `Actions IA max/tour: ${config.aiActionsMaxPerTurn}`
   ].join('\n');
 }
 
@@ -95,7 +99,11 @@ async function handleCommand(client, msg, memory, command) {
           '!acceptme - Tente d’accepter la demande d’ami de la personne qui envoie la commande.',
           '!join <lien/code> - Tente de rejoindre un serveur via invitation.',
           '!say <channelId> <message> - Envoie un message dans un salon précis.',
-          '!help-control - Rappelle les commandes de contrôle.'
+          '!help-control - Rappelle les commandes de contrôle.',
+          '',
+          'Pilotage IA social (DM):',
+          'Tu peux demander en langage naturel: rejoindre un serveur, accepter ton ami, écrire dans un channel.',
+          "L'IA peut exécuter automatiquement ces actions selon la config."
         ].join('\n')
       );
       return true;
@@ -191,6 +199,85 @@ async function handleControlCommand(client, msg, command, args) {
   return false;
 }
 
+function extractAiActions(rawResponse) {
+  const text = rawResponse || '';
+  const match = text.match(ACTION_BLOCK_REGEX);
+  if (!match) {
+    return { visibleText: text.trim(), actions: [] };
+  }
+
+  const visibleText = text.replace(ACTION_BLOCK_REGEX, '').trim();
+  try {
+    const parsed = JSON.parse(match[1].trim());
+    const actions = Array.isArray(parsed?.actions) ? parsed.actions : [];
+    return { visibleText, actions };
+  } catch (error) {
+    logger.warn("Bloc ACTIONS invalide, ignoré", { error: error.message });
+    return { visibleText, actions: [] };
+  }
+}
+
+function normalizeAction(action) {
+  if (!action || typeof action !== 'object') return null;
+  const type = String(action.type || '').toLowerCase();
+  if (!type) return null;
+  return { ...action, type };
+}
+
+async function executeAiAction(client, msg, action) {
+  if (!msg.channel || msg.guildID != null) {
+    return '⚠️ Actions IA ignorées hors DM.';
+  }
+
+  if (action.type === 'acceptme') {
+    if (typeof client.addRelationship !== 'function') {
+      return "⚠️ Action `acceptme` indisponible avec ce client.";
+    }
+    await client.addRelationship(msg.author.id, true);
+    return `✅ Ami accepté pour ${msg.author.username || msg.author.id}.`;
+  }
+
+  if (action.type === 'join') {
+    const code = extractInviteCode(String(action.invite || ''));
+    if (!code) return "❌ Action `join` ignorée: code d'invitation manquant.";
+    if (typeof client.acceptInvite !== 'function') {
+      return "⚠️ Action `join` indisponible avec ce client.";
+    }
+    await client.acceptInvite(code);
+    return `✅ Serveur rejoint via ${code}.`;
+  }
+
+  if (action.type === 'say') {
+    const channelId = String(action.channelId || '').trim();
+    const text = String(action.message || '').trim();
+    if (!channelId || !text) {
+      return "❌ Action `say` ignorée: channelId/message manquant.";
+    }
+    await client.createMessage(channelId, text);
+    return `✅ Message envoyé dans ${channelId}.`;
+  }
+
+  return `⚠️ Action IA inconnue: ${action.type}`;
+}
+
+async function executeAiActions(client, msg, rawActions) {
+  const maxActions = Math.max(0, config.aiActionsMaxPerTurn || 0);
+  const shortlist = rawActions.map(normalizeAction).filter(Boolean).slice(0, maxActions);
+  const summaries = [];
+
+  for (const action of shortlist) {
+    try {
+      const result = await executeAiAction(client, msg, action);
+      summaries.push(result);
+    } catch (error) {
+      logger.error('Échec action IA', { error: error.message, action });
+      summaries.push(`❌ Échec action ${action.type}: ${error.message}`);
+    }
+  }
+
+  return summaries;
+}
+
 function registerMessageHandler(client, memory) {
   client.on('messageCreate', async (msg) => {
     try {
@@ -223,11 +310,27 @@ function registerMessageHandler(client, memory) {
       await typing.start();
 
       try {
-        const finalPrompt = `Langue attendue: ${lang}.\nMessage utilisateur: ${cleanPrompt}`;
+        const finalPrompt = [
+          `Langue attendue: ${lang}.`,
+          'Tu peux piloter le compte si utile.',
+          'Si une action Discord est nécessaire, ajoute un bloc strict:',
+          '[ACTIONS]{"actions":[{"type":"acceptme"},{"type":"join","invite":"CODE"},{"type":"say","channelId":"123","message":"..."}]}[/ACTIONS]',
+          "Le texte hors bloc ACTIONS sera envoyé à l'utilisateur.",
+          "N'invente jamais d'action si la demande ne l'exige pas.",
+          `Message utilisateur: ${cleanPrompt}`
+        ].join('\n');
         const response = await generateReply({ userPrompt: finalPrompt, history });
-        const safe = truncateText(response, config.maxResponseChars);
+        const parsed = extractAiActions(response);
+        const safe = truncateText(parsed.visibleText || '✅ Action traitée.', config.maxResponseChars);
         await sendReply(client, msg.channel.id, safe);
         memory.addAssistantMessage(msg.channel.id, safe);
+
+        if (config.aiActionsEnabled && config.aiActionsAutoExecute && parsed.actions.length) {
+          const actionResults = await executeAiActions(client, msg, parsed.actions);
+          if (actionResults.length) {
+            await sendReply(client, msg.channel.id, actionResults.join('\n'));
+          }
+        }
       } catch (error) {
         logger.error('Échec génération OpenAI', { error: error.message });
         await client.createMessage(msg.channel.id, config.fallbackErrorMessage);
