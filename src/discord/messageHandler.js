@@ -2,7 +2,7 @@ const { generateReply } = require('../openai');
 const { config } = require('../config');
 const { splitDiscordMessage, truncateText } = require('../utils/text');
 const logger = require('../utils/logger');
-const CONTROL_COMMANDS = ['owner', 'acceptme', 'join', 'say', 'help-control'];
+const CONTROL_COMMANDS = ['owner', 'acceptme', 'addfriend', 'join', 'say', 'help-control'];
 const ACTION_BLOCK_REGEX = /\[ACTIONS\]([\s\S]*?)\[\/ACTIONS\]/i;
 
 function createTypingLoop(client, channelId, intervalMs) {
@@ -97,6 +97,7 @@ async function handleCommand(client, msg, memory, command) {
           '',
           'Contrôle DM:',
           '!acceptme - Tente d’accepter la demande d’ami de la personne qui envoie la commande.',
+          '!addfriend <userId> - Envoie une demande d’ami à un utilisateur.',
           '!join <lien/code> - Tente de rejoindre un serveur via invitation.',
           '!say <channelId> <message> - Envoie un message dans un salon précis.',
           '!help-control - Rappelle les commandes de contrôle.',
@@ -113,6 +114,7 @@ async function handleCommand(client, msg, memory, command) {
         [
           'Commandes contrôle Discord (DM uniquement):',
           '!acceptme',
+          '!addfriend <userId>',
           '!join <lien/code>',
           '!say <channelId> <message>'
         ].join('\n')
@@ -152,6 +154,29 @@ async function handleControlCommand(client, msg, command, args) {
     } catch (error) {
       logger.error('Échec acceptation ami', { error: error.message });
       await client.createMessage(msg.channel.id, "❌ Impossible d'accepter la demande d'ami.");
+    }
+    return true;
+  }
+
+  if (command === 'addfriend') {
+    const targetId = String(args[0] || '').replace(/[<@!>]/g, '').trim();
+    if (!targetId) {
+      await client.createMessage(msg.channel.id, 'Usage: `!addfriend <userId>`');
+      return true;
+    }
+    if (typeof client.addRelationship !== 'function') {
+      await client.createMessage(
+        msg.channel.id,
+        '⚠️ Cette version du client Discord ne permet pas d’envoyer des demandes d’ami automatiquement.'
+      );
+      return true;
+    }
+    try {
+      await client.addRelationship(targetId, true);
+      await client.createMessage(msg.channel.id, `✅ Demande d’ami envoyée à ${targetId}.`);
+    } catch (error) {
+      logger.error('Échec envoi demande ami', { error: error.message, targetId });
+      await client.createMessage(msg.channel.id, `❌ Impossible d’envoyer une demande d’ami à ${targetId}.`);
     }
     return true;
   }
@@ -237,6 +262,16 @@ async function executeAiAction(client, msg, action) {
     return `✅ Ami accepté pour ${msg.author.username || msg.author.id}.`;
   }
 
+  if (action.type === 'addfriend' || action.type === 'friend_request') {
+    const targetId = String(action.userId || action.targetId || action.id || '').replace(/[<@!>]/g, '').trim();
+    if (!targetId) return "❌ Action `addfriend` ignorée: userId manquant.";
+    if (typeof client.addRelationship !== 'function') {
+      return "⚠️ Action `addfriend` indisponible avec ce client.";
+    }
+    await client.addRelationship(targetId, true);
+    return `✅ Demande d'ami envoyée à ${targetId}.`;
+  }
+
   if (action.type === 'join') {
     const code = extractInviteCode(String(action.invite || ''));
     if (!code) return "❌ Action `join` ignorée: code d'invitation manquant.";
@@ -312,9 +347,13 @@ function registerMessageHandler(client, memory) {
       try {
         const finalPrompt = [
           `Langue attendue: ${lang}.`,
-          'Tu peux piloter le compte si utile.',
-          'Si une action Discord est nécessaire, ajoute un bloc strict:',
-          '[ACTIONS]{"actions":[{"type":"acceptme"},{"type":"join","invite":"CODE"},{"type":"say","channelId":"123","message":"..."}]}[/ACTIONS]',
+          "Tu contrôles réellement un compte Discord via un exécuteur d'actions côté serveur.",
+          "Tu es autorisée à agir directement si l'utilisateur le demande et que les paramètres sont présents.",
+          "Actions supportées: acceptme, addfriend (ou friend_request), join, say.",
+          'Si une action Discord est nécessaire, ajoute un bloc strict JSON uniquement:',
+          '[ACTIONS]{"actions":[{"type":"acceptme"},{"type":"addfriend","userId":"123456789"},{"type":"join","invite":"CODE"},{"type":"say","channelId":"123","message":"..."}]}[/ACTIONS]',
+          "N'écris jamais que tu n'as pas l'autorisation d'agir: ici tu l'as.",
+          "S'il manque une donnée (ex: userId, code d'invitation, channelId), demande-la clairement sans inventer.",
           "Le texte hors bloc ACTIONS sera envoyé à l'utilisateur.",
           "N'invente jamais d'action si la demande ne l'exige pas.",
           `Message utilisateur: ${cleanPrompt}`

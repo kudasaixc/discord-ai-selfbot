@@ -14,8 +14,8 @@ Projet complet et modulaire d'un assistant IA Discord nommé **Garmin**.
 - Utilisation de **Responses API** (`client.responses.create`).
 - Mémoire courte par salon/DM (10 derniers échanges par défaut).
 - Commandes : `!ping`, `!reset`, `!config`, `!help`.
-- Commandes de contrôle DM: `!acceptme`, `!join`, `!say`.
-- Pilotage IA social: l'IA peut exécuter `acceptme`, `join` et `say` en langage naturel.
+- Commandes de contrôle DM: `!acceptme`, `!addfriend`, `!join`, `!say`.
+- Pilotage IA social: l'IA peut exécuter `acceptme`, `addfriend`/`friend_request`, `join` et `say` en langage naturel.
 - Protection anti-boucle (ignore ses propres messages).
 - Ignore les autres bots.
 - Gestion robuste des erreurs, logs lisibles, typing indicator.
@@ -124,6 +124,7 @@ Texte proposé :
 - `!config` → affiche la configuration active
 - `!help` → aide
 - `!acceptme` (en DM) → tente d'accepter la demande d'ami de l'auteur du DM
+- `!addfriend <userId>` (en DM) → envoie une demande d’ami à un utilisateur
 - `!join <lien/code>` (en DM) → tente de rejoindre un serveur via invitation
 - `!say <channelId> <message>` (en DM) → envoie un message dans un salon ciblé
 
@@ -134,7 +135,7 @@ En DM, vous pouvez aussi donner des instructions sans commande (`!`) comme :
 - “rejoins ce serveur https://discord.gg/xxxxx”
 - “envoie ‘hello team’ dans le channel 123456789”
 
-L’IA peut alors produire un bloc d’actions internes, qui sera exécuté automatiquement si `AI_ACTIONS_ENABLED=true` et `AI_ACTIONS_AUTO_EXECUTE=true`.
+L’IA peut alors produire un bloc d’actions internes (`acceptme`, `addfriend`/`friend_request`, `join`, `say`), qui sera exécuté automatiquement si `AI_ACTIONS_ENABLED=true` et `AI_ACTIONS_AUTO_EXECUTE=true`.
 
 ## Limites connues
 
