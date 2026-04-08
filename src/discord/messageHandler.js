@@ -4,6 +4,7 @@ const { splitDiscordMessage, truncateText } = require('../utils/text');
 const logger = require('../utils/logger');
 const CONTROL_COMMANDS = ['owner', 'acceptme', 'addfriend', 'join', 'say', 'help-control'];
 const ACTION_BLOCK_REGEX = /\[ACTIONS\]([\s\S]*?)\[\/ACTIONS\]/i;
+const DISCORD_ID_REGEX = /\b\d{17,20}\b/g;
 
 function createTypingLoop(client, channelId, intervalMs) {
   let timer = null;
@@ -130,6 +131,19 @@ function extractInviteCode(input = '') {
   if (!clean) return null;
   const match = clean.match(/(?:discord\.gg\/|discord\.com\/invite\/)?([A-Za-z0-9-]+)/i);
   return match ? match[1] : clean;
+}
+
+function extractDiscordIds(input = '') {
+  const matches = String(input).match(DISCORD_ID_REGEX) || [];
+  return [...new Set(matches)];
+}
+
+function resolveUserIdFromAction(action, msg) {
+  const explicitId = String(action.userId || action.targetId || action.id || '').replace(/[<@!>]/g, '').trim();
+  if (explicitId) return explicitId;
+
+  const idsInMessage = extractDiscordIds(msg?.content || '');
+  return idsInMessage[0] || '';
 }
 
 async function handleControlCommand(client, msg, command, args) {
@@ -263,10 +277,12 @@ async function executeAiAction(client, msg, action) {
   }
 
   if (action.type === 'addfriend' || action.type === 'friend_request') {
-    const targetId = String(action.userId || action.targetId || action.id || '').replace(/[<@!>]/g, '').trim();
-    if (!targetId) return "❌ Action `addfriend` ignorée: userId manquant.";
+    const targetId = resolveUserIdFromAction(action, msg);
+    if (!targetId) {
+      return "❌ Il me faut un userId Discord (17 à 20 chiffres) pour envoyer la demande d'ami.";
+    }
     if (typeof client.addRelationship !== 'function') {
-      return "⚠️ Action `addfriend` indisponible avec ce client.";
+      return "⚠️ Je ne peux pas envoyer de demande d’ami automatiquement avec ce client Discord.";
     }
     await client.addRelationship(targetId, true);
     return `✅ Demande d'ami envoyée à ${targetId}.`;
@@ -360,15 +376,27 @@ function registerMessageHandler(client, memory) {
         ].join('\n');
         const response = await generateReply({ userPrompt: finalPrompt, history });
         const parsed = extractAiActions(response);
-        const safe = truncateText(parsed.visibleText || '✅ Action traitée.', config.maxResponseChars);
-        await sendReply(client, msg.channel.id, safe);
-        memory.addAssistantMessage(msg.channel.id, safe);
+        const hasVisibleText = Boolean(parsed.visibleText && parsed.visibleText.trim());
+        if (hasVisibleText) {
+          const safe = truncateText(parsed.visibleText, config.maxResponseChars);
+          await sendReply(client, msg.channel.id, safe);
+          memory.addAssistantMessage(msg.channel.id, safe);
+        }
 
+        let executedActionCount = 0;
         if (config.aiActionsEnabled && config.aiActionsAutoExecute && parsed.actions.length) {
           const actionResults = await executeAiActions(client, msg, parsed.actions);
+          executedActionCount = actionResults.length;
           if (actionResults.length) {
             await sendReply(client, msg.channel.id, actionResults.join('\n'));
+            memory.addAssistantMessage(msg.channel.id, actionResults.join('\n'));
           }
+        }
+
+        if (!hasVisibleText && executedActionCount === 0) {
+          const fallback = "Je t'écoute, dis-moi précisément ce que tu veux que je fasse.";
+          await sendReply(client, msg.channel.id, fallback);
+          memory.addAssistantMessage(msg.channel.id, fallback);
         }
       } catch (error) {
         logger.error('Échec génération OpenAI', { error: error.message });
