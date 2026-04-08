@@ -5,6 +5,7 @@ const logger = require('../utils/logger');
 const CONTROL_COMMANDS = ['owner', 'acceptme', 'addfriend', 'join', 'say', 'help-control'];
 const ACTION_BLOCK_REGEX = /\[ACTIONS\]([\s\S]*?)\[\/ACTIONS\]/i;
 const DISCORD_ID_REGEX = /\b\d{17,20}\b/g;
+const DISCORD_API_BASE = 'https://discord.com/api/v9';
 
 function createTypingLoop(client, channelId, intervalMs) {
   let timer = null;
@@ -155,15 +156,8 @@ async function handleControlCommand(client, msg, command, args) {
   }
 
   if (command === 'acceptme') {
-    if (typeof client.addRelationship !== 'function') {
-      await client.createMessage(
-        msg.channel.id,
-        '⚠️ Cette version du client Discord ne permet pas de gérer les demandes d’ami automatiquement.'
-      );
-      return true;
-    }
     try {
-      await client.addRelationship(msg.author.id, true);
+      await addFriendRelationship(client, msg.author.id);
       await client.createMessage(msg.channel.id, '✅ Tentative d’acceptation de votre demande d’ami effectuée.');
     } catch (error) {
       logger.error('Échec acceptation ami', { error: error.message });
@@ -178,15 +172,8 @@ async function handleControlCommand(client, msg, command, args) {
       await client.createMessage(msg.channel.id, 'Usage: `!addfriend <userId>`');
       return true;
     }
-    if (typeof client.addRelationship !== 'function') {
-      await client.createMessage(
-        msg.channel.id,
-        '⚠️ Cette version du client Discord ne permet pas d’envoyer des demandes d’ami automatiquement.'
-      );
-      return true;
-    }
     try {
-      await client.addRelationship(targetId, true);
+      await addFriendRelationship(client, targetId);
       await client.createMessage(msg.channel.id, `✅ Demande d’ami envoyée à ${targetId}.`);
     } catch (error) {
       logger.error('Échec envoi demande ami', { error: error.message, targetId });
@@ -201,15 +188,8 @@ async function handleControlCommand(client, msg, command, args) {
       await client.createMessage(msg.channel.id, 'Usage: `!join <lien_ou_code_invitation>`');
       return true;
     }
-    if (typeof client.acceptInvite !== 'function') {
-      await client.createMessage(
-        msg.channel.id,
-        '⚠️ Cette version du client Discord ne permet pas de rejoindre des serveurs via commande.'
-      );
-      return true;
-    }
     try {
-      await client.acceptInvite(code);
+      await joinInvite(client, code);
       await client.createMessage(msg.channel.id, `✅ Invitation acceptée (code: ${code}).`);
     } catch (error) {
       logger.error('Échec acceptation invitation', { error: error.message, code });
@@ -263,16 +243,57 @@ function normalizeAction(action) {
   return { ...action, type };
 }
 
+function getAuthToken(client) {
+  return process.env.DISCORD_BOT_TOKEN || client?._token || '';
+}
+
+async function discordApiRequest(client, method, endpoint, body) {
+  const token = getAuthToken(client);
+  if (!token) {
+    throw new Error('Token Discord indisponible.');
+  }
+
+  const response = await fetch(`${DISCORD_API_BASE}${endpoint}`, {
+    method,
+    headers: {
+      Authorization: token,
+      'Content-Type': 'application/json'
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+
+  if (!response.ok) {
+    const details = await response.text().catch(() => '');
+    throw new Error(`HTTP ${response.status} ${response.statusText}${details ? ` - ${details}` : ''}`);
+  }
+
+  if (response.status === 204) return null;
+  return response.json().catch(() => null);
+}
+
+async function addFriendRelationship(client, userId) {
+  if (typeof client.addRelationship === 'function') {
+    await client.addRelationship(userId, true);
+    return;
+  }
+  await discordApiRequest(client, 'PUT', `/users/@me/relationships/${userId}`, { type: 1 });
+}
+
+async function joinInvite(client, code) {
+  if (typeof client.acceptInvite === 'function') {
+    await client.acceptInvite(code);
+    return;
+  }
+  await discordApiRequest(client, 'POST', `/invites/${code}`, {});
+}
+
 async function executeAiAction(client, msg, action) {
   if (!msg.channel || msg.guildID != null) {
     return '⚠️ Actions IA ignorées hors DM.';
   }
 
   if (action.type === 'acceptme') {
-    if (typeof client.addRelationship !== 'function') {
-      return "⚠️ Action `acceptme` indisponible avec ce client.";
-    }
-    await client.addRelationship(msg.author.id, true);
+    await addFriendRelationship(client, msg.author.id);
     return `✅ Ami accepté pour ${msg.author.username || msg.author.id}.`;
   }
 
@@ -281,20 +302,14 @@ async function executeAiAction(client, msg, action) {
     if (!targetId) {
       return "❌ Il me faut un userId Discord (17 à 20 chiffres) pour envoyer la demande d'ami.";
     }
-    if (typeof client.addRelationship !== 'function') {
-      return "⚠️ Je ne peux pas envoyer de demande d’ami automatiquement avec ce client Discord.";
-    }
-    await client.addRelationship(targetId, true);
+    await addFriendRelationship(client, targetId);
     return `✅ Demande d'ami envoyée à ${targetId}.`;
   }
 
   if (action.type === 'join') {
     const code = extractInviteCode(String(action.invite || ''));
     if (!code) return "❌ Action `join` ignorée: code d'invitation manquant.";
-    if (typeof client.acceptInvite !== 'function') {
-      return "⚠️ Action `join` indisponible avec ce client.";
-    }
-    await client.acceptInvite(code);
+    await joinInvite(client, code);
     return `✅ Serveur rejoint via ${code}.`;
   }
 
