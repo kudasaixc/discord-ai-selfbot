@@ -147,6 +147,10 @@ function resolveUserIdFromAction(action, msg) {
   return idsInMessage[0] || '';
 }
 
+function isSelfUserId(client, userId) {
+  return Boolean(client?.user?.id) && String(userId) === String(client.user.id);
+}
+
 async function handleControlCommand(client, msg, command, args) {
   if (!msg.channel || msg.guildID != null) return false;
   if (!CONTROL_COMMANDS.includes(command)) return false;
@@ -170,6 +174,13 @@ async function handleControlCommand(client, msg, command, args) {
     const targetId = String(args[0] || '').replace(/[<@!>]/g, '').trim();
     if (!targetId) {
       await client.createMessage(msg.channel.id, 'Usage: `!addfriend <userId>`');
+      return true;
+    }
+    if (isSelfUserId(client, targetId)) {
+      await client.createMessage(
+        msg.channel.id,
+        "❌ Cet userId est le mien, je ne peux pas m'ajouter moi-même en ami. Envoie l'userId de la personne cible."
+      );
       return true;
     }
     try {
@@ -301,6 +312,9 @@ async function executeAiAction(client, msg, action) {
     const targetId = resolveUserIdFromAction(action, msg);
     if (!targetId) {
       return "❌ Il me faut un userId Discord (17 à 20 chiffres) pour envoyer la demande d'ami.";
+    }
+    if (isSelfUserId(client, targetId)) {
+      return "❌ Tu m'as donné mon propre userId: je ne peux pas m'ajouter moi-même en ami. Donne-moi l'userId de la personne à ajouter.";
     }
     await addFriendRelationship(client, targetId);
     return `✅ Demande d'ami envoyée à ${targetId}.`;
