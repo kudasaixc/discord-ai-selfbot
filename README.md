@@ -14,6 +14,7 @@ Projet complet et modulaire d'un assistant IA Discord nommé **Garmin**.
 - Utilisation de **Responses API** (`client.responses.create`).
 - Mémoire courte par salon/DM (10 derniers échanges par défaut).
 - Commandes : `!ping`, `!reset`, `!config`, `!help`.
+- Commandes de contrôle DM: `!acceptme`, `!join`, `!say`.
 - Protection anti-boucle (ignore ses propres messages).
 - Ignore les autres bots.
 - Gestion robuste des erreurs, logs lisibles, typing indicator.
@@ -115,6 +116,9 @@ Texte proposé :
 - `!reset` → reset de la mémoire du salon/DM courant
 - `!config` → affiche la configuration active
 - `!help` → aide
+- `!acceptme` (en DM) → tente d'accepter la demande d'ami de l'auteur du DM
+- `!join <lien/code>` (en DM) → tente de rejoindre un serveur via invitation
+- `!say <channelId> <message>` (en DM) → envoie un message dans un salon ciblé
 
 ## Limites connues
 
