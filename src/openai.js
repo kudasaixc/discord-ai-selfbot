@@ -14,9 +14,10 @@ function buildInput(systemPrompt, history, userPrompt) {
   ];
 
   for (const item of history) {
+    const contentType = item.role === 'assistant' ? 'output_text' : 'input_text';
     input.push({
       role: item.role,
-      content: [{ type: 'input_text', text: item.content }]
+      content: [{ type: contentType, text: item.content }]
     });
   }
 
